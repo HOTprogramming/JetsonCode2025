@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import rclpy
 from rclpy.node import Node
 from networktables import NetworkTables
@@ -13,7 +12,7 @@ class ROS2NetworkTablesBridge(Node):
         super().__init__('ros2_networktables_bridge')
         
         # Initialize NetworkTables
-        self.server_ip = '10.0.67.2'  # Replace with your NT server IP
+        self.server_ip = '127.0.0.1'  # Replace with your NT server IP
         NetworkTables.initialize(server=self.server_ip)
         
         # Wait for NetworkTables connection
@@ -22,9 +21,8 @@ class ROS2NetworkTablesBridge(Node):
             time.sleep(1)
         self.get_logger().info("Connected to NetworkTables!")
         
-        # Get NetworkTables tables - this will create the table if it doesn't exist
-        self.tag_table = NetworkTables.getTable('AprilTags')
-        self.camera_table = self.tag_table.getSubTable('Camera')
+        # Get the root NetworkTables table
+        self.root_table = NetworkTables.getTable('AprilTags')
         
         # Load the field map of AprilTag positions
         with open('2025-reefscape.json', 'r') as file:
@@ -47,78 +45,87 @@ class ROS2NetworkTablesBridge(Node):
             }
             for tag in self.field_map["tags"]
         }
-        
-        # Create ROS subscriber for AprilTag detections
-        self.subscription = self.create_subscription(
-            AprilTagDetectionArray,
-            '/tag_detections',
-            self.tag_callback,
-            10
-        )
-        self.get_logger().info("Subscribed to /tag_detections")
-        
-    def tag_callback(self, msg):
-        """Callback for AprilTag detection data"""
-        # Extract timestamp seconds and nanoseconds
-        timestamp_sec = msg.header.stamp.sec
-        timestamp_nanosec = msg.header.stamp.nanosec
-        
-        # Post to NetworkTables
-        self.tag_table.putNumber('timestamp_sec', timestamp_sec)
-        self.tag_table.putNumber('timestamp_nanosec', timestamp_nanosec)
-        
-        # Log the data
-        self.get_logger().info(f'Received timestamp: {timestamp_sec}.{timestamp_nanosec} seconds')
-        
-        # Also log if we got any detections
-        num_detections = len(msg.detections)
-        self.tag_table.putNumber('num_detections', num_detections)
-        self.get_logger().info(f'Number of detections: {num_detections}')
 
-        # List of tags we care about
-        tags_of_interest = [6, 7, 8, 9, 10, 11, 17, 18, 19, 20, 21, 22]
+        # Tags of interest
+        self.tags_of_interest = [6, 7, 8, 9, 10, 11, 17, 18, 19, 20, 21, 22]
+
+        # Camera topics to subscribe to
+        self.camera_topics = ['/camera1/apriltag_detections', '/camera2/apriltag_detections']  # Add more as needed
+
+        # Create a subtable for each camera
+        self.camera_tables = {}
+        for topic in self.camera_topics:
+            camera_name = topic.split('/')[1]  # Extract camera name from topic (e.g., 'camera1')
+            self.camera_tables[camera_name] = self.root_table.getSubTable(camera_name)
+
+        # ROS2 subscribers for each camera
+        self.subscriptions = []
+        for topic in self.camera_topics:
+            self.subscriptions.append(
+                self.create_subscription(
+                    AprilTagDetectionArray,
+                    topic,
+                    lambda msg, topic=topic: self.apriltag_callback(msg, topic),
+                    10
+                )
+            )
+
+    def apriltag_callback(self, msg, topic):
+        camera_name = topic.split('/')[1]  # Extract camera name from topic
         detected_tags = []
+        total_distance = 0.0
+        num_tags = 0
 
         # If there are detections, process them
-        if num_detections > 0:
-            for detection in msg.detections:
-                if detection.id in tags_of_interest:
-                    tag_id = detection.id
-                    tag_pose = detection.pose.pose.pose
-                    position = tag_pose.position
-                    orientation = tag_pose.orientation
+        for detection in msg.detections:
+            tag_id = detection.id[0]
+            if tag_id not in self.tags_of_interest:
+                continue
 
-                    # Get the detected pose of the tag relative to the camera
-                    detected_pose_relative_to_camera = (
-                        (position.x, position.y, position.z),
-                        (orientation.x, orientation.y, orientation.z, orientation.w)
-                    )
+            position = (
+                detection.pose.pose.position.x,
+                detection.pose.pose.position.y,
+                detection.pose.pose.position.z
+            )
+            orientation = (
+                detection.pose.pose.orientation.x,
+                detection.pose.pose.orientation.y,
+                detection.pose.pose.orientation.z,
+                detection.pose.pose.orientation.w
+            )
 
-                    # Calculate the camera's pose on the field
-                    try:
-                        camera_position, camera_orientation = self.calculate_camera_pose(
-                            tag_id, detected_pose_relative_to_camera
-                        )
+            try:
+                camera_position, camera_orientation = self.calculate_camera_pose(tag_id, (position, orientation))
 
-                        # Store the detected tag information
-                        detected_tags.append({
-                            'id': tag_id,
-                            'position': (position.x, position.y, position.z),
-                            'orientation': (orientation.x, orientation.y, orientation.z, orientation.w)
-                        })
+                # Store the detected tag information
+                detected_tags.append({
+                    'id': tag_id,
+                    'position': position,
+                    'orientation': orientation
+                })
 
-                        # Post the camera's absolute pose to NetworkTables as a single array [position, orientation]
-                        camera_data = list(camera_position) + list(camera_orientation.flatten())
-                        self.camera_table.putNumberArray('Camera Absolute Pose', camera_data)
+                # Calculate distance to the tag
+                distance = np.linalg.norm(position)
+                total_distance += distance
+                num_tags += 1
 
-                    except ValueError as e:
-                        self.get_logger().error(str(e))
+                # Post the camera's absolute pose to NetworkTables under the camera's subtable
+                camera_data = list(camera_position) + list(camera_orientation)
+                self.camera_tables[camera_name].putNumberArray('Absolute Pose', camera_data)
 
-            # Post the list of detected tags to NetworkTables as a single array [tag, position, orientation, tag, position, orientation, ...]
-            tag_data = []
-            for tag in detected_tags:
-                tag_data.extend([tag['id']] + list(tag['position']) + list(tag['orientation']))
-            self.tag_table.putNumberArray('Detected Tags Data', tag_data)
+            except ValueError as e:
+                self.get_logger().warn(str(e))
+
+        # Post the list of detected tags to NetworkTables under the camera's subtable
+        tag_data = []
+        for tag in detected_tags:
+            tag_data.extend([tag['id']] + list(tag['position']) + list(tag['orientation']))
+        self.camera_tables[camera_name].putNumberArray('Detected Tags Data', tag_data)
+
+        # Calculate and post the average distance to all tags under the camera's subtable
+        if num_tags > 0:
+            average_distance = total_distance / num_tags
+            self.camera_tables[camera_name].putNumber('Average Distance', average_distance)
 
     def calculate_camera_pose(self, tag_id, detected_pose_relative_to_camera):
         """
@@ -137,23 +144,45 @@ class ROS2NetworkTablesBridge(Node):
 
         # Get the detected pose of the tag relative to the camera
         tag_to_camera = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
-
-        # Calculate the camera's pose relative to the field
         camera_to_field = transform(tag_to_field, invert_transform(tag_to_camera))
 
-        # Extract the camera's position and orientation from the transformation matrix
-        camera_position = camera_to_field[:3, 3]
-        camera_orientation = camera_to_field[:3, :3]  # Rotation matrix
-        return camera_position, camera_orientation
+        camera_orientation = camera_to_field[:3, :3]
+        trace = np.trace(camera_orientation)
+        if trace > 0:
+            qw = np.sqrt(1.0 + trace) / 2.0
+            qx = (camera_orientation[2, 1] - camera_orientation[1, 2]) / (4.0 * qw)
+            qy = (camera_orientation[0, 2] - camera_orientation[2, 0]) / (4.0 * qw)
+            qz = (camera_orientation[1, 0] - camera_orientation[0, 1]) / (4.0 * qw)
+        else:
+            if camera_orientation[0, 0] > camera_orientation[1, 1] and camera_orientation[0, 0] > camera_orientation[2, 2]:
+                s = 2.0 * np.sqrt(1.0 + camera_orientation[0, 0] - camera_orientation[1, 1] - camera_orientation[2, 2])
+                qw = (camera_orientation[2, 1] - camera_orientation[1, 2]) / s
+                qx = 0.25 * s
+                qy = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
+                qz = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
+            elif camera_orientation[1, 1] > camera_orientation[2, 2]:
+                s = 2.0 * np.sqrt(1.0 + camera_orientation[1, 1] - camera_orientation[0, 0] - camera_orientation[2, 2])
+                qw = (camera_orientation[0, 2] - camera_orientation[2, 0]) / s
+                qx = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
+                qy = 0.25 * s
+                qz = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
+            else:
+                s = 2.0 * np.sqrt(1.0 + camera_orientation[2, 2] - camera_orientation[0, 0] - camera_orientation[1, 1])
+                qw = (camera_orientation[1, 0] - camera_orientation[0, 1]) / s
+                qx = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
+                qy = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
+                qz = 0.25 * s
+
+        return (camera_to_field[:3, 3], (qx, qy, qz, qw))
 
 def main(args=None):
     rclpy.init(args=args)
     bridge = ROS2NetworkTablesBridge()
-    
+
     try:
         rclpy.spin(bridge)
     except KeyboardInterrupt:
-        pass
+        bridge.get_logger().info("Shutting down...")
     finally:
         # Clean up
         bridge.destroy_node()
