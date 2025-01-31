@@ -155,7 +155,6 @@ class NetworkTablesBridge:
 		camera_to_field = np.dot((tag_to_field), invert_transform(camera_to_tag))
 		# camera_to_field = np.matmul(invert_transform(tag_to_field), camera_to_tag)
 
-		camera_orientation = camera_to_field[:3, :3]
 		quaternion = tf.quaternion_from_matrix(camera_to_field)
 
 		qw = quaternion[0]

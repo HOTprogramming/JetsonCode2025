@@ -6,6 +6,23 @@ import time
 import json
 import numpy as np
 from pytransform3d.transformations import transform_from_pq, invert_transform, transform
+import transformations as tf
+
+robot_to_camera_position = (
+			1,
+			0,
+			0
+		)
+
+robot_to_camera_orientation_quaternion = tf.quaternion_from_euler(0, 0, 0)
+robot_to_camera_orientation = (
+	robot_to_camera_orientation_quaternion[0],
+	robot_to_camera_orientation_quaternion[1],
+	robot_to_camera_orientation_quaternion[2],
+	robot_to_camera_orientation_quaternion[3]
+)
+
+
 
 class ROS2NetworkTablesBridge(Node):
 	def __init__(self):
@@ -145,35 +162,18 @@ class ROS2NetworkTablesBridge(Node):
 		tag_to_field = transform_from_pq(tag_absolute_pose["position"] + tag_absolute_pose["orientation"])
 
 		# Get the detected pose of the tag relative to the camera
-		tag_to_camera = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
-		camera_to_field = transform(tag_to_field, invert_transform(tag_to_camera))
+		camera_to_tag = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
+		camera_to_field = np.dot(tag_to_field, invert_transform(camera_to_tag))
+		
+		robot_to_camera = transform_from_pq(robot_to_camera_position + robot_to_camera_orientation)
+		camera_to_robot = np.dot(robot_to_camera, invert_transform(camera_to_field))
 
-		camera_orientation = camera_to_field[:3, :3]
-		trace = np.trace(camera_orientation)
-		if trace > 0:
-			qw = np.sqrt(1.0 + trace) / 2.0
-			qx = (camera_orientation[2, 1] - camera_orientation[1, 2]) / (4.0 * qw)
-			qy = (camera_orientation[0, 2] - camera_orientation[2, 0]) / (4.0 * qw)
-			qz = (camera_orientation[1, 0] - camera_orientation[0, 1]) / (4.0 * qw)
-		else:
-			if camera_orientation[0, 0] > camera_orientation[1, 1] and camera_orientation[0, 0] > camera_orientation[2, 2]:
-				s = 2.0 * np.sqrt(1.0 + camera_orientation[0, 0] - camera_orientation[1, 1] - camera_orientation[2, 2])
-				qw = (camera_orientation[2, 1] - camera_orientation[1, 2]) / s
-				qx = 0.25 * s
-				qy = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
-				qz = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
-			elif camera_orientation[1, 1] > camera_orientation[2, 2]:
-				s = 2.0 * np.sqrt(1.0 + camera_orientation[1, 1] - camera_orientation[0, 0] - camera_orientation[2, 2])
-				qw = (camera_orientation[0, 2] - camera_orientation[2, 0]) / s
-				qx = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
-				qy = 0.25 * s
-				qz = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
-			else:
-				s = 2.0 * np.sqrt(1.0 + camera_orientation[2, 2] - camera_orientation[0, 0] - camera_orientation[1, 1])
-				qw = (camera_orientation[1, 0] - camera_orientation[0, 1]) / s
-				qx = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
-				qy = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
-				qz = 0.25 * s
+		quaternion = tf.quaternion_from_matrix(camera_to_field)
+
+		qw = quaternion[0]
+		qx = quaternion[1]
+		qy = quaternion[2]
+		qz = quaternion[3]
 
 		return (camera_to_field[:3, 3], (qx, qy, qz, qw))
 
