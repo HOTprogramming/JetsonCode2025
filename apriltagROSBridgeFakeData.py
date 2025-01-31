@@ -8,6 +8,8 @@ from pytransform3d.transformations import (
 	invert_transform, 
 	transform)
 import random
+import transformations as tf
+
 
 class NetworkTablesBridge:
 	def __init__(self):
@@ -34,17 +36,17 @@ class NetworkTablesBridge:
 					tag["pose"]["translation"]["z"]
 				),
 				"orientation": (
+					tag["pose"]["rotation"]["quaternion"]["W"],
 					tag["pose"]["rotation"]["quaternion"]["X"],
 					tag["pose"]["rotation"]["quaternion"]["Y"],
-					tag["pose"]["rotation"]["quaternion"]["Z"],
-					tag["pose"]["rotation"]["quaternion"]["W"]
+					tag["pose"]["rotation"]["quaternion"]["Z"]
 				)
 			}
 			for tag in self.field_map["tags"]
 		}
 
 		# Tags of interest
-		self.tags_of_interest = [6, 7, 8, 9, 10, 11, 17, 18, 19, 20, 21, 22]
+		self.tags_of_interest = [6, 7, 8, 9, 10, 11, 12, 17, 18, 19, 20, 21, 22]
 
 		# Define camera configurations
 		self.camera_names = ['camera1', 'camera2']  # Add more as needed
@@ -60,8 +62,8 @@ class NetworkTablesBridge:
 		"""Simulate AprilTag detections for each camera with fake data and send to NetworkTables"""
 		for camera_name in self.camera_names:
 			# Generate a random number of detections (between 1 and 5)
-			num_detections = random.randint(1, 5)
-			print(f"Simulating {num_detections} fake AprilTag detections for {camera_name}")
+			num_detections = 1 #random.randint(1, 5)
+			# print(f"Simulating {num_detections} fake AprilTag detections for {camera_name}")
 
 			detected_tags = []
 			total_distance = 0.0
@@ -83,6 +85,19 @@ class NetworkTablesBridge:
 				)
 
 				try:
+					tag_id = random.randint(0, 22)
+					position = (
+						2.0,
+						0.0,
+						0.2
+					)
+					orientation = (
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					)
+
 					camera_position, camera_orientation = self.calculate_camera_pose(tag_id, (position, orientation))
 
 					# Store the detected tag information
@@ -130,40 +145,52 @@ class NetworkTablesBridge:
 
 		# Get the absolute pose of the tag on the field
 		tag_absolute_pose = self.tag_map[tag_id]
+		# print(tag_absolute_pose)
 		tag_to_field = transform_from_pq(tag_absolute_pose["position"] + tag_absolute_pose["orientation"])
+		# print(tag_to_field)
 
 		# Get the detected pose of the tag relative to the camera
-		tag_to_camera = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
-		camera_to_field = transform(tag_to_field, invert_transform(tag_to_camera))
+		camera_to_tag = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
+		# camera_to_field = np.matmul(camera_to_tag, invert_transform(tag_to_field))
+		camera_to_field = np.dot((tag_to_field), invert_transform(camera_to_tag))
+		# camera_to_field = np.matmul(invert_transform(tag_to_field), camera_to_tag)
 
 		camera_orientation = camera_to_field[:3, :3]
-		trace = np.trace(camera_orientation)
-		if trace > 0:
-			qw = np.sqrt(1.0 + trace) / 2.0
-			qx = (camera_orientation[2, 1] - camera_orientation[1, 2]) / (4.0 * qw)
-			qy = (camera_orientation[0, 2] - camera_orientation[2, 0]) / (4.0 * qw)
-			qz = (camera_orientation[1, 0] - camera_orientation[0, 1]) / (4.0 * qw)
-		else:
-			if camera_orientation[0, 0] > camera_orientation[1, 1] and camera_orientation[0, 0] > camera_orientation[2, 2]:
-				s = 2.0 * np.sqrt(1.0 + camera_orientation[0, 0] - camera_orientation[1, 1] - camera_orientation[2, 2])
-				qw = (camera_orientation[2, 1] - camera_orientation[1, 2]) / s
-				qx = 0.25 * s
-				qy = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
-				qz = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
-			elif camera_orientation[1, 1] > camera_orientation[2, 2]:
-				s = 2.0 * np.sqrt(1.0 + camera_orientation[1, 1] - camera_orientation[0, 0] - camera_orientation[2, 2])
-				qw = (camera_orientation[0, 2] - camera_orientation[2, 0]) / s
-				qx = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
-				qy = 0.25 * s
-				qz = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
-			else:
-				s = 2.0 * np.sqrt(1.0 + camera_orientation[2, 2] - camera_orientation[0, 0] - camera_orientation[1, 1])
-				qw = (camera_orientation[1, 0] - camera_orientation[0, 1]) / s
-				qx = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
-				qy = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
-				qz = 0.25 * s
+		quaternion = tf.quaternion_from_matrix(camera_to_field)
 
-		return (camera_to_field[:3, 3], (qx, qy, qz, qw))
+		qw = quaternion[0]
+		qx = quaternion[1]
+		qy = quaternion[2]
+		qz = quaternion[3]
+
+
+		# trace = np.trace(camera_orientation)
+		# if trace > 0:
+		# 	qw = np.sqrt(1.0 + trace) / 2.0
+		# 	qx = (camera_orientation[2, 1] - camera_orientation[1, 2]) / (4.0 * qw)
+		# 	qy = (camera_orientation[0, 2] - camera_orientation[2, 0]) / (4.0 * qw)
+		# 	qz = (camera_orientation[1, 0] - camera_orientation[0, 1]) / (4.0 * qw)
+		# else:
+		# 	if camera_orientation[0, 0] > camera_orientation[1, 1] and camera_orientation[0, 0] > camera_orientation[2, 2]:
+		# 		s = 2.0 * np.sqrt(1.0 + camera_orientation[0, 0] - camera_orientation[1, 1] - camera_orientation[2, 2])
+		# 		qw = (camera_orientation[2, 1] - camera_orientation[1, 2]) / s
+		# 		qx = 0.25 * s
+		# 		qy = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
+		# 		qz = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
+		# 	elif camera_orientation[1, 1] > camera_orientation[2, 2]:
+		# 		s = 2.0 * np.sqrt(1.0 + camera_orientation[1, 1] - camera_orientation[0, 0] - camera_orientation[2, 2])
+		# 		qw = (camera_orientation[0, 2] - camera_orientation[2, 0]) / s
+		# 		qx = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
+		# 		qy = 0.25 * s
+		# 		qz = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
+		# 	else:
+		# 		s = 2.0 * np.sqrt(1.0 + camera_orientation[2, 2] - camera_orientation[0, 0] - camera_orientation[1, 1])
+		# 		qw = (camera_orientation[1, 0] - camera_orientation[0, 1]) / s
+		# 		qx = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
+		# 		qy = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
+		# 		qz = 0.25 * s
+
+		return (camera_to_field[:3, 3], (qw, qx, qy, qz))
 
 def main():
 	bridge = NetworkTablesBridge()
