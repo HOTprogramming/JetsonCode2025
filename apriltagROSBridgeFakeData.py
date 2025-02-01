@@ -11,6 +11,40 @@ import random
 import transformations as tf
 
 
+#CAMERA 1 CONFIG
+camera1_name = "camera1"
+camera1_position = (
+			0.3,
+			0,
+			0
+		)
+
+camera1_orientation_q = tf.quaternion_from_euler(0, 0, 90)
+camera1_orientation = (
+	camera1_orientation_q[0],
+	camera1_orientation_q[1],
+	camera1_orientation_q[2],
+	camera1_orientation_q[3]
+)
+
+#CAMERA 2 CONFIG
+camera2_name = "camera2"
+camera2_position = (
+			1,
+			0,
+			0
+		)
+
+camera2_orientation_q = tf.quaternion_from_euler(0, 0, 0)
+camera2_orientation = (
+	camera2_orientation_q[0],
+	camera2_orientation_q[1],
+	camera2_orientation_q[2],
+	camera2_orientation_q[3]
+)
+
+
+
 class NetworkTablesBridge:
 	def __init__(self):
 		# Initialize NetworkTables
@@ -45,12 +79,16 @@ class NetworkTablesBridge:
 			for tag in self.field_map["tags"]
 		}
 
-		# Tags of interest
-		self.tags_of_interest = [6, 7, 8, 9, 10, 11, 12, 17, 18, 19, 20, 21, 22]
-
-		# Define camera configurations
 		self.camera_names = ['camera1', 'camera2']  # Add more as needed
 
+		self.camera_transforms = {
+    		"camera1": transform_from_pq(camera1_position + camera1_orientation),
+    		"camera2": transform_from_pq(camera2_position + camera2_orientation)  # Modify as needed
+		}
+
+		# Tags of interest
+		self.tags_of_interest = [6, 7, 8, 9, 10, 11, 12, 17, 18, 19, 20, 21, 22]
+	
 		# Get the root NetworkTables table and create subtables for each camera
 		self.root_table = NetworkTables.getTable('AprilTags')
 		self.camera_tables = {
@@ -85,11 +123,12 @@ class NetworkTablesBridge:
 				)
 
 				try:
-					tag_id = random.randint(0, 22)
+					tag_id = random.randint(1, 22)
+					# tag_id = 7
 					position = (
 						2.0,
 						0.0,
-						0.2
+						self.tag_map[tag_id]["position"][2]
 					)
 					orientation = (
 						0.0,
@@ -99,6 +138,7 @@ class NetworkTablesBridge:
 					)
 
 					camera_position, camera_orientation = self.calculate_camera_pose(tag_id, (position, orientation))
+					robot_position, robot_orientation = self.transform_camera_to_robot((camera_position, camera_orientation), camera_name)
 
 					# Store the detected tag information
 					detected_tags.append({
@@ -115,6 +155,8 @@ class NetworkTablesBridge:
 					# Post the camera's absolute pose to NetworkTables
 					camera_data = list(camera_position) + list(camera_orientation)
 					self.camera_tables[camera_name].putNumberArray('Absolute Pose', camera_data)
+					robot_data = list(robot_position) + list(robot_orientation)
+					self.camera_tables[camera_name].putNumberArray('Absolute Robot Pose', robot_data)
 
 				except ValueError as e:
 					print(str(e))
@@ -151,45 +193,36 @@ class NetworkTablesBridge:
 
 		# Get the detected pose of the tag relative to the camera
 		camera_to_tag = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
-		# camera_to_field = np.matmul(camera_to_tag, invert_transform(tag_to_field))
-		camera_to_field = np.dot((tag_to_field), invert_transform(camera_to_tag))
-		# camera_to_field = np.matmul(invert_transform(tag_to_field), camera_to_tag)
+		camera_to_field = np.matmul((tag_to_field), invert_transform(camera_to_tag))
 
 		quaternion = tf.quaternion_from_matrix(camera_to_field)
 
-		qw = quaternion[0]
-		qx = quaternion[1]
-		qy = quaternion[2]
-		qz = quaternion[3]
+		return (camera_to_field[:3, 3], (quaternion[0], quaternion[1], quaternion[2], quaternion[3]))
 
 
-		# trace = np.trace(camera_orientation)
-		# if trace > 0:
-		# 	qw = np.sqrt(1.0 + trace) / 2.0
-		# 	qx = (camera_orientation[2, 1] - camera_orientation[1, 2]) / (4.0 * qw)
-		# 	qy = (camera_orientation[0, 2] - camera_orientation[2, 0]) / (4.0 * qw)
-		# 	qz = (camera_orientation[1, 0] - camera_orientation[0, 1]) / (4.0 * qw)
-		# else:
-		# 	if camera_orientation[0, 0] > camera_orientation[1, 1] and camera_orientation[0, 0] > camera_orientation[2, 2]:
-		# 		s = 2.0 * np.sqrt(1.0 + camera_orientation[0, 0] - camera_orientation[1, 1] - camera_orientation[2, 2])
-		# 		qw = (camera_orientation[2, 1] - camera_orientation[1, 2]) / s
-		# 		qx = 0.25 * s
-		# 		qy = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
-		# 		qz = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
-		# 	elif camera_orientation[1, 1] > camera_orientation[2, 2]:
-		# 		s = 2.0 * np.sqrt(1.0 + camera_orientation[1, 1] - camera_orientation[0, 0] - camera_orientation[2, 2])
-		# 		qw = (camera_orientation[0, 2] - camera_orientation[2, 0]) / s
-		# 		qx = (camera_orientation[0, 1] + camera_orientation[1, 0]) / s
-		# 		qy = 0.25 * s
-		# 		qz = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
-		# 	else:
-		# 		s = 2.0 * np.sqrt(1.0 + camera_orientation[2, 2] - camera_orientation[0, 0] - camera_orientation[1, 1])
-		# 		qw = (camera_orientation[1, 0] - camera_orientation[0, 1]) / s
-		# 		qx = (camera_orientation[0, 2] + camera_orientation[2, 0]) / s
-		# 		qy = (camera_orientation[1, 2] + camera_orientation[2, 1]) / s
-		# 		qz = 0.25 * s
+	def transform_camera_to_robot(self, camera_pose, camera_name):
+		"""
+		Transforms a camera's pose from field coordinates to robot coordinates.
 
-		return (camera_to_field[:3, 3], (qw, qx, qy, qz))
+		:param camera_pose: (position, orientation) tuple of the camera in field coordinates.
+		:param camera_name: Name of the camera.
+		:return: Camera pose relative to the robot as (position, orientation).
+		"""
+		if camera_name not in self.camera_transforms:
+			raise ValueError(f"Camera {camera_name} not found in transformations.")
+
+		# Transform camera pose to robot frame
+		camera_position = (camera_pose[0][0], camera_pose[0][1], camera_pose[0][2])
+		field_to_camera = transform_from_pq(camera_position + camera_pose[1])
+		
+		camera_to_robot = invert_transform(self.camera_transforms[camera_name])
+		robot_pose = np.dot(field_to_camera, camera_to_robot)
+		
+
+		quaternion = tf.quaternion_from_matrix(robot_pose)
+		return (robot_pose[:3, 3], (quaternion[0], quaternion[1], quaternion[2], quaternion[3]))
+
+
 
 def main():
 	bridge = NetworkTablesBridge()
