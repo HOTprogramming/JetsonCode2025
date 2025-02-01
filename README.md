@@ -13,7 +13,7 @@ Creating a network tables bridge from ROS2 to WPILib
 * Edit the launch file to add namespaces
     1. `sudo apt install nano` (or use vi if you`re weird)
     2. `sudo nano isaac_ros_apriltag_usb_cam.launch.py` (rename this file if you don`t want to keep typing out the long name)
-    3. Add your camera name in all of the namespace sections. Ensure that you add a namespace section to the `usb_cam_node` as it doesn`t have the option by default. THIS MUST BE THE SAME NAME AS IS IN THE `aprilTagROSBridge.py`. 
+    3. Add your camera name in all of the namespace sections. Ensure that you add a namespace section to the `usb_cam_node` as it doesn't have the option by default. THIS MUST BE THE SAME NAME AS IS IN THE `aprilTagROSBridge.py`. 
         * **Check `sample launch.py` for an example edited launch file**
     4. Make sure you change the `usb_cam_params_path` to whatever params file you are using for that camera
     5. Copy and paste this launch file for each camera you are going to use, **ensuring that you are changing namespace and params file values**
