@@ -182,22 +182,22 @@ class NetworkTablesBridge:
 		:param detected_pose_relative_to_camera: (position, orientation) of the tag relative to the camera.
 		:return: Camera pose on the field as a (position, orientation) tuple.
 		"""
+
 		if tag_id not in self.tag_map:
 			raise ValueError(f"Tag ID {tag_id} not found in the map.")
 
 		# Get the absolute pose of the tag on the field
-		tag_absolute_pose = self.tag_map[tag_id]
-		# print(tag_absolute_pose)
-		tag_to_field = transform_from_pq(tag_absolute_pose["position"] + tag_absolute_pose["orientation"])
-		# print(tag_to_field)
+		tag_absolute_pose = self.tag_map[tag_id] #Obtain tag's pose from 2025-reefscape.json map
+		tag_to_field = transform_from_pq(tag_absolute_pose["position"] + tag_absolute_pose["orientation"]) #Create pose matrix of the tag's absolute pose
 
 		# Get the detected pose of the tag relative to the camera
-		camera_to_tag = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1])
-		camera_to_field = np.matmul((tag_to_field), invert_transform(camera_to_tag))
+		camera_to_tag = transform_from_pq(detected_pose_relative_to_camera[0] + detected_pose_relative_to_camera[1]) #Create pose matrix of camera to tag
 
-		quaternion = tf.quaternion_from_matrix(camera_to_field)
+		camera_to_field = np.matmul((tag_to_field), invert_transform(camera_to_tag)) #Calculate the absolute pose of camera
 
-		return (camera_to_field[:3, 3], (quaternion[0], quaternion[1], quaternion[2], quaternion[3]))
+		quaternion = tf.quaternion_from_matrix(camera_to_field) #Obtain rotation from pose matrix (as a quaternion)
+
+		return (camera_to_field[:3, 3], (quaternion[0], quaternion[1], quaternion[2], quaternion[3])) #Return position (right column of matrix) and orientation (as a quaternion)
 
 
 	def transform_camera_to_robot(self, camera_pose, camera_name):
