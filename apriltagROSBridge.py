@@ -40,13 +40,6 @@ camera1_position = ( #x, y, z in meters
 
 camera1_orientation_q = tf.quaternion_from_euler(0, 0, 90) #roll, pitch , yaw
 
-camera1_orientation = (
-	camera1_orientation_q[0],
-	camera1_orientation_q[1],
-	camera1_orientation_q[2],
-	camera1_orientation_q[3]
-)
-
 #CAMERA 2 CONFIG
 camera2_name = "camera2" #this is the name that will be published to network tables
 camera2_ros_topic = "camera2" #this is where your unique namespace for this camera goes
@@ -58,13 +51,6 @@ camera2_position = ( #x, y, z in meters
 
 camera2_orientation_q = tf.quaternion_from_euler(0, 0, 0) #roll, pitch , yaw
 
-camera2_orientation = (
-	camera2_orientation_q[0],
-	camera2_orientation_q[1],
-	camera2_orientation_q[2],
-	camera2_orientation_q[3]
-)
-
 #CAMERA 3 CONFIG
 camera3_name = "camera3" #this is the name that will be published to network tables
 camera3_ros_topic = "camera3" #this is where your unique namespace for this camera goes
@@ -75,6 +61,22 @@ camera3_position = ( #x, y, z in meters
 		)
 
 camera3_orientation_q = tf.quaternion_from_euler(0, 0, 0) #roll, pitch , yaw
+
+
+#Take w, x, y, z from quaternion and put into a tuple
+camera1_orientation = (
+	camera1_orientation_q[0],
+	camera1_orientation_q[1],
+	camera1_orientation_q[2],
+	camera1_orientation_q[3]
+)
+
+camera2_orientation = (
+	camera2_orientation_q[0],
+	camera2_orientation_q[1],
+	camera2_orientation_q[2],
+	camera2_orientation_q[3]
+)
 
 camera3_orientation = (
 	camera3_orientation_q[0],
