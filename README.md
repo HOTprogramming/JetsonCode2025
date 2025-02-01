@@ -31,7 +31,7 @@ Creating a network tables bridge from ROS2 to WPILib
     3. Make sure your camera calibration files are here as well
         1. If you have them in the regular docker container then copy them over from there.
         2. In the docker container (`/workspaces/isaac_ros_dev`): `sudo cp cool_name_for_a_file_here.yaml /opt/ros/humble/share/issac_ros_apriltag/config/another_cool_name` (make sure to replace the names with what you want, **ensuring the same name is put into the corresponding `usb_cam_params.yaml`**)
-## 3. Start an AprilTag Node Using the Custom Launch File! (yay!)
+## Start an AprilTag Node Using the Custom Launch File! (yay!)
 * `ros2 launch isaac_ros_apriltag isaac_ros_apriltag_usb_cam.launch.py`
 * Replace `isaac_ros_apriltag_usb_cam.launch.py` with the name of your launch file
 
